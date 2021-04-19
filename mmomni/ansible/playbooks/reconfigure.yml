@@ -128,7 +128,7 @@
 
     - name: "Components"
       block:
-        - include: jitsi/reconfigure.yml
-        - include: monitoring/reconfigure.yml
+        #- include: jitsi/reconfigure.yml
+        #- include: monitoring/reconfigure.yml
         - include: penpot/reconfigure.yml
-      when: not core_only|bool
+      #when: not core_only|bool
