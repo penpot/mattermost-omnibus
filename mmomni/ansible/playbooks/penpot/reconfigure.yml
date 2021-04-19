@@ -5,15 +5,10 @@
       become: yes
       become_user: postgres
       block:
-        - name: "Create database user for Penpot"
-          postgresql_user:
-            name: "penpot"
-            password: "penpot"
-
         - name: "Create database for Penpot"
           postgresql_db:
-            name: penpot
-            owner: "penpot"
+            name: "penpot"
+            owner: "{{db_user}}"
 
     - name: "Install OPENJDK"
       when: penpot_installed
@@ -36,24 +31,52 @@
             update_cache: yes
             install_recommends: yes
 
+    - name: "Install REDIS"
+      when: penpot_installed
+      block:
+        - name: install redis server
+          apt:
+            pkg:
+              - redis-server
+            state: latest
+            update_cache: yes
+            install_recommends: yes
+
+        - name: configure redis.conf
+          register: "redis_config"
+          copy:
+            dest: /etc/redis/redis.conf
+            owner: redis
+            group: redis
+            mode: "0644"
+            content: |
+              bind 127.0.0.1 ::1 {{private_address}}
+              port 6379
+              tcp-backlog 1024
+              timeout 0
+              tcp-keepalive 300
+              daemonize yes
+              supervised systemd
+              pidfile /run/redis/redis-server.pid
+              loglevel notice
+              logfile /var/log/redis/redis-server.log
+              databases 16
+              dir /var/lib/redis
+              maxclients 50000
+              appendonly no
+
+        - name: restart redis
+          systemd:
+            name: "redis"
+            enabled: yes
+            state: restarted
+
     - name: "Install NodeJS"
       when: penpot_installed
       vars:
         node_version: "v14.16.1"
 
       block:
-        - name: download nodejs
-          get_url:
-            url: "https://nodejs.org/dist/{{node_version}}/node-{{node_version}}-linux-x64.tar.xz"
-            dest: "/tmp/node.tar.xz"
-            mode: "0644"
-
-        - name: unpack nodejs
-          unarchive:
-            src: "/tmp/node.tar.xz"
-            dest: /tmp/
-            remote_src: yes
-
         - name: setup nodejs
           shell:
             cmd: >-
@@ -80,6 +103,7 @@
           apt:
             state: present
             pkg:
+              - redis-server
               - imagemagick
               - webp
               - netpbm
@@ -163,14 +187,11 @@
               -Dclojure.tools.logging.factory=clojure.tools.logging.impl/log4j2-factory
 
           copy:
-            dest: "/var/www/app/backend/environ"
+            dest: "/opt/penpot/app/backend/environ"
             mode: "0644"
             content: |
               # system
               export JVM_OPTS="{{jvm_opts|default("")|trim()}}"
-              export PATH=$PATH:/usr/local/nodejs/bin
-              export AWS_ACCESS_KEY_ID={{aws_access_key_id}}
-              export AWS_SECRET_ACCESS_KEY={{aws_secret_access_key}}
 
               # general
               export PENPOT_HOST={{fqdn}}
@@ -190,8 +211,8 @@
               # databases
               export PENPOT_REDIS_URI=redis://localhost/0
               export PENPOT_DATABASE_URI=postgresql://localhost/penpot
-              export PENPOT_DATABASE_USERNAME=penpot
-              export PENPOT_DATABASE_PASSWORD=penpot
+              export PENPOT_DATABASE_USERNAME={{db_user}}
+              export PENPOT_DATABASE_PASSWORD={{db_password}}
 
               # limits
               export PENPOT_RLIMITS_PASSWORD=10
@@ -218,7 +239,7 @@
               [Install]
               WantedBy=multi-user.target
 
-            dest: /etc/systemd/system/backend.service
+            dest: /etc/systemd/system/penpot-backend.service
             owner: root
             group: root
             mode: "0644"
@@ -229,7 +250,7 @@
 
         - name: setup/restart systemd unit
           systemd:
-            name: "backend"
+            name: "penpot-backend"
             enabled: yes
             state: restarted
 
