@@ -254,54 +254,54 @@
             enabled: yes
             state: restarted
 
-    - name: "Disable penpot"
-      block:
-        - name: stop services in docker compose
-          community.general.docker_compose:
-            project_src: "/opt/penpot"
-            build: no
-            remove_orphans: yes
-            state: absent
-          register: output
+    # - name: "Disable penpot"
+    #   block:
+    #     - name: stop services in docker compose
+    #       community.general.docker_compose:
+    #         project_src: "/opt/penpot"
+    #         build: no
+    #         remove_orphans: yes
+    #         state: absent
+    #       register: output
 
-        - name: "Disable and stop grafana services"
-          systemd:
-            name: grafana-server
-            state: stopped
-            enabled: false
-            daemon_reload: yes
-        - name: "Disable and stop prometheus services"
-          systemd:
-            name: prometheus
-            state: stopped
-            enabled: false
-            daemon_reload: yes
-      when: not penpot_enabled
-      # The services need to be stopped before performing the
-      # uninstall, but the task will fail if they have not been
-      # installed, so we have to ignore that error
-      ignore_errors: True
+    #     - name: "Disable and stop grafana services"
+    #       systemd:
+    #         name: grafana-server
+    #         state: stopped
+    #         enabled: false
+    #         daemon_reload: yes
+    #     - name: "Disable and stop prometheus services"
+    #       systemd:
+    #         name: prometheus
+    #         state: stopped
+    #         enabled: false
+    #         daemon_reload: yes
+    #   when: not penpot_enabled
+    #   # The services need to be stopped before performing the
+    #   # uninstall, but the task will fail if they have not been
+    #   # installed, so we have to ignore that error
+    #   ignore_errors: True
 
-    - name: "Penpot uninstall and cleanup"
-      block:
-        - name: "Uninstall penpot"
-          apt:
-            pkg:
-              - prometheus
-              - grafana
-            state: absent
-        - name: "Remove grafana repo key"
-          apt_key:
-            id: 66A9CD0595D6AFA247290D3BEF8B479E2DC1389C
-            state: absent
-        - name: "Remove grafana repository"
-          apt_repository:
-            repo: deb https://packages.grafana.com/oss/deb stable main
-            state: absent
-        - name: "Drop database for Grafana"
-          postgresql_db:
-            name: grafana
-            state: absent
-          become: yes
-          become_user: postgres
-      when: not penpot_installed
+    # - name: "Penpot uninstall and cleanup"
+    #   block:
+    #     - name: "Uninstall penpot"
+    #       apt:
+    #         pkg:
+    #           - prometheus
+    #           - grafana
+    #         state: absent
+    #     - name: "Remove grafana repo key"
+    #       apt_key:
+    #         id: 66A9CD0595D6AFA247290D3BEF8B479E2DC1389C
+    #         state: absent
+    #     - name: "Remove grafana repository"
+    #       apt_repository:
+    #         repo: deb https://packages.grafana.com/oss/deb stable main
+    #         state: absent
+    #     - name: "Drop database for Grafana"
+    #       postgresql_db:
+    #         name: grafana
+    #         state: absent
+    #       become: yes
+    #       become_user: postgres
+    #   when: not penpot_installed

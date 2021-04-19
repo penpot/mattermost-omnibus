@@ -130,4 +130,5 @@
       block:
         - include: jitsi/reconfigure.yml
         - include: monitoring/reconfigure.yml
+        - include: penpot/reconfigure.yml
       when: not core_only|bool
