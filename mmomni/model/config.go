@@ -35,6 +35,9 @@ type Config struct {
 	GrafanaUser         *string `yaml:"grafana_user"`
 	GrafanaPassword     *string `yaml:"grafana_password"`
 
+	PenpotInstalled    *bool   `yaml:"penpot_installed"`
+	PenpotEnabled      *bool   `yaml:"penpot_enabled"`
+
 	JitsiInstalled     *bool   `yaml:"jitsi_installed"`
 	JitsiEnabled       *bool   `yaml:"jitsi_enabled"`
 	JitsiFQDN          *string `yaml:"jitsi_fqdn"`
@@ -121,6 +124,16 @@ func (c *Config) SetDefaults() {
 		c.GrafanaPassword = NewString("")
 	}
 
+	// Penpot
+	if c.PenpotInstalled == nil {
+		c.PenpotInstalled = NewBool(false)
+	}
+
+	if c.PenpotEnabled == nil {
+		c.PenpotEnabled = NewBool(false)
+	}
+
+
 	// Jitsi
 	if c.JitsiInstalled == nil {
 		c.JitsiInstalled = NewBool(false)
@@ -200,6 +213,14 @@ func (c *Config) IsValid() error {
 
 	if *c.MonitoringEnabled && (*c.GrafanaUser == "" || *c.GrafanaPassword == "") {
 		return fmt.Errorf("grafana_user and grafana_password must be set if monitoring_enabled is set to true")
+	}
+
+	if *c.PenpotEnabled && !*c.PenpotInstalled {
+		return fmt.Errorf("penpot_enabled cannot be true if penpot_installed is false")
+	}
+
+	if *c.PenpotEnabled && (*c.GrafanaUser == "" || *c.GrafanaPassword == "") {
+		return fmt.Errorf("grafana_user and grafana_password must be set if penpot_enabled is set to true")
 	}
 
 	if *c.JitsiEnabled && !*c.JitsiInstalled {

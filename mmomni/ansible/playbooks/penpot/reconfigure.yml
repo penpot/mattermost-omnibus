@@ -1,0 +1,307 @@
+- name: "Penpot"
+
+  block:
+    - name: "PostgreSQL"
+      become: yes
+      become_user: postgres
+      block:
+        - name: "Create database user for Penpot"
+          postgresql_user:
+            name: "penpot"
+            password: "penpot"
+
+        - name: "Create database for Penpot"
+          postgresql_db:
+            name: penpot
+            owner: "penpot"
+
+    - name: "Install OPENJDK"
+      when: penpot_installed
+      block:
+        - name: add adoptopenjdk key
+          apt_key:
+            url: https://adoptopenjdk.jfrog.io/adoptopenjdk/api/gpg/key/public
+            state: present
+
+        - name: add adoptopenjdk repo
+          apt_repository:
+            repo: deb https://adoptopenjdk.jfrog.io/adoptopenjdk/deb/ focal main
+            state: present
+
+        - name: install openjdk 16
+          apt:
+            pkg:
+              - adoptopenjdk-16-hotspot
+            state: latest
+            update_cache: yes
+            install_recommends: yes
+
+    - name: "Install NodeJS"
+      when: penpot_installed
+      vars:
+        node_version: "v14.15.6"
+        architecture: "amd64"
+
+      block:
+        - name: set arch to arm64
+          when: "ansible_facts.architecture == 'aarch64'"
+          set_fact:
+            architecture: "arm64"
+
+        - name: download nodejs
+          get_url:
+            url: "https://nodejs.org/dist/{{node_version}}/node-{{node_version}}-linux-{{architecture}}.tar.xz"
+            dest: "/tmp/node.tar.xz"
+            mode: "0644"
+
+        - name: unpack nodejs
+          unarchive:
+            src: "/tmp/node.tar.xz"
+            dest: /tmp/
+            remote_src: yes
+
+        - name: setup nodejs
+          shell:
+            cmd: >-
+              set -e;
+              rm -rf /usr/local/nodejs;
+              mv /tmp/node-{{node_version}}-linux-{{architecture}} /usr/local/nodejs;
+              chown -R root:root /usr/local/nodejs;
+            creates: /usr/local/nodejs
+
+        - name: clean files
+          ansible.builtin.file:
+            path: /tmp/node.tar.xz
+            state: absent
+
+        - name: install yarn
+          npm:
+            global: true
+            name: yarn
+          environment:
+            PATH: "/usr/local/nodejs/bin:/bin:/usr/bin"
+
+    - name: "Penpot installation"
+      when: penpot_installed
+      block:
+        - name: "Install Penpot dependencies"
+          apt:
+            state: present
+            pkg:
+              - imagemagick
+              - webp
+              - netpbm
+              - potrace
+
+        - name: "Install penpot exporter dependencies"
+          apt:
+            state: present
+            pkg:
+              - gconf-service
+              - libasound2
+              - libatk1.0-0
+              - libatk-bridge2.0-0
+              - libcairo2
+              - libcups2
+              - libdbus-1-3
+              - libexpat1
+              - libfontconfig1
+              - libgcc1
+              - libgconf-2-4
+              - libgdk-pixbuf2.0-0
+              - libglib2.0-0
+              - libgtk-3-0
+              - libnspr4
+              - libpango-1.0-0
+              - libpangocairo-1.0-0
+              - libx11-6
+              - libx11-xcb1
+              - libxcb1
+              - libxcomposite1
+              - libxcursor1
+              - libxdamage1
+              - libxext6
+              - libxfixes3
+              - libxi6
+              - libxrandr2
+              - libxrender1
+              - libxshmfence1
+              - libxss1
+              - libxtst6
+              - fonts-liberation
+              - libappindicator1
+              - libnss3
+              - libgbm1
+
+        - name: "Ensure penpot directory"
+          file:
+            path: /opt/penpot/
+            state: directory
+            owner: root
+            group: root
+            mode: u=rwx,g=rx,o=rx
+
+        - name: Download penpot app bundle
+          get_url:
+            url: "https://github.com/penpot/penpot/releases/download/v1.4.1-alpha/bundle-app.tar.xz"
+            dest: "/tmp/bundle-app.tar.xz"
+            mode: "0644"
+
+        - name: Download penpot exporter bundle
+          get_url:
+            url: "https://github.com/penpot/penpot/releases/download/v1.4.1-alpha/bundle-exporter.tar.xz"
+            dest: "/tmp/bundle-exporter.tar.xz"
+            mode: "0644"
+
+        - name: unpack penpot
+          unarchive:
+            src: "/tmp/bundle-app.tar.xz"
+            dest: "/opt/penpot/app/"
+            remote_src: yes
+
+        - name: unpack penpot
+          unarchive:
+            src: "/tmp/bundle-exporter.tar.xz"
+            dest: "/opt/penpot/exporter/"
+            remote_src: yes
+
+        - name: clean files
+          ansible.builtin.file:
+            path: /tmp/bundle-app.tar.xz
+            state: absent
+
+        - name: clean files
+          ansible.builtin.file:
+            path: /tmp/bundle-exporter.tar.xz
+            state: absent
+
+        - name: update backend environemnt file
+          vars:
+            jvm_opts: >-
+              -XX:+UseZGC
+              -XX:-OmitStackTraceInFastThrow
+              -XX:ConcGCThreads=1
+              -Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager
+              -Dclojure.tools.logging.factory=clojure.tools.logging.impl/log4j2-factory
+
+          copy:
+            dest: "/var/www/app/backend/environ"
+            mode: "0644"
+            content: |
+              # system
+              export JVM_OPTS="{{jvm_opts|default("")|trim()}}"
+              export PATH=$PATH:/usr/local/nodejs/bin
+              export AWS_ACCESS_KEY_ID={{aws_access_key_id}}
+              export AWS_SECRET_ACCESS_KEY={{aws_secret_access_key}}
+
+              # general
+              export PENPOT_HOST={{fqdn}}
+              export PENPOT_TENANT=mattermost
+              export PENPOT_DEFAULT_BLOB_VERSION=3
+              export PENPOT_ASSERTS_ENABLED=false
+              export PENPOT_PUBLIC_URI=https://{{domain_name}}
+
+              # telemetry
+              export PENPOT_TELEMETRY_ENABLED=false
+              export PENPOT_TELEMETRY_REFERER=mattermost-omnibus
+
+              # storage
+              export PENPOT_STORAGE_BACKEND=db
+
+              # databases
+              export PENPOT_REDIS_URI={{redis_uri}}
+              export PENPOT_DATABASE_URI=postgresql://localhost/penpot
+              export PENPOT_DATABASE_USERNAME=penpot
+              export PENPOT_DATABASE_PASSWORD=penpot
+
+              # limits
+              export PENPOT_RLIMITS_PASSWORD=10
+              export PENPOT_RLIMITS_IMAGE=2
+
+        - name: update systemd unit
+          copy:
+            content: |
+              [Unit]
+              Description=Penpot Backend
+
+              [Service]
+              WorkingDirectory=/opt/penpot/app/backend
+              ExecStart=/bin/bash run.sh
+              User=root
+              Group=root
+              KillMode=mixed
+              KillSignal=SIGTERM
+              TimeoutStopSec=5s
+              Type=simple
+              Restart=on-failure
+              RestartSec=10
+
+              [Install]
+              WantedBy=multi-user.target
+
+            dest: /etc/systemd/system/backend.service
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: reload daemon
+          systemd:
+            daemon_reload: yes
+
+        - name: setup/restart systemd unit
+          systemd:
+            name: "backend"
+            enabled: yes
+            state: restarted
+
+    - name: "Disable penpot"
+      block:
+        - name: stop services in docker compose
+          community.general.docker_compose:
+            project_src: "/opt/penpot"
+            build: no
+            remove_orphans: yes
+            state: absent
+          register: output
+
+        - name: "Disable and stop grafana services"
+          systemd:
+            name: grafana-server
+            state: stopped
+            enabled: false
+            daemon_reload: yes
+        - name: "Disable and stop prometheus services"
+          systemd:
+            name: prometheus
+            state: stopped
+            enabled: false
+            daemon_reload: yes
+      when: not penpot_enabled
+      # The services need to be stopped before performing the
+      # uninstall, but the task will fail if they have not been
+      # installed, so we have to ignore that error
+      ignore_errors: True
+
+    - name: "Penpot uninstall and cleanup"
+      block:
+        - name: "Uninstall penpot"
+          apt:
+            pkg:
+              - prometheus
+              - grafana
+            state: absent
+        - name: "Remove grafana repo key"
+          apt_key:
+            id: 66A9CD0595D6AFA247290D3BEF8B479E2DC1389C
+            state: absent
+        - name: "Remove grafana repository"
+          apt_repository:
+            repo: deb https://packages.grafana.com/oss/deb stable main
+            state: absent
+        - name: "Drop database for Grafana"
+          postgresql_db:
+            name: grafana
+            state: absent
+          become: yes
+          become_user: postgres
+      when: not penpot_installed
