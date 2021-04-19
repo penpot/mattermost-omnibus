@@ -50,7 +50,7 @@
             group: redis
             mode: "0644"
             content: |
-              bind 127.0.0.1 ::1 {{private_address}}
+              bind 127.0.0.1 ::1
               port 6379
               tcp-backlog 1024
               timeout 0
@@ -195,14 +195,13 @@
 
               # general
               export PENPOT_HOST={{fqdn}}
-              export PENPOT_TENANT=mattermost
-              export PENPOT_DEFAULT_BLOB_VERSION=3
+              export PENPOT_TENANT=pro
               export PENPOT_ASSERTS_ENABLED=false
               # TODO: https?
               export PENPOT_PUBLIC_URI=https://{{fqdn}}
 
               # telemetry
-              export PENPOT_TELEMETRY_ENABLED=false
+              export PENPOT_TELEMETRY_ENABLED=true
               export PENPOT_TELEMETRY_REFERER=mattermost-omnibus
 
               # storage
@@ -254,54 +253,88 @@
             enabled: yes
             state: restarted
 
-    # - name: "Disable penpot"
-    #   block:
-    #     - name: stop services in docker compose
-    #       community.general.docker_compose:
-    #         project_src: "/opt/penpot"
-    #         build: no
-    #         remove_orphans: yes
-    #         state: absent
-    #       register: output
+    - name: "Disable penpot"
+      when: not penpot_enabled
+      # The services need to be stopped before performing the
+      # uninstall, but the task will fail if they have not been
+      # installed, so we have to ignore that error
+      ignore_errors: True
+      block:
+        - name: "Disable penpot"
+          systemd:
+            name: penpot-backend
+            state: stopped
+            enabled: false
+            daemon_reload: yes
 
-    #     - name: "Disable and stop grafana services"
-    #       systemd:
-    #         name: grafana-server
-    #         state: stopped
-    #         enabled: false
-    #         daemon_reload: yes
-    #     - name: "Disable and stop prometheus services"
-    #       systemd:
-    #         name: prometheus
-    #         state: stopped
-    #         enabled: false
-    #         daemon_reload: yes
-    #   when: not penpot_enabled
-    #   # The services need to be stopped before performing the
-    #   # uninstall, but the task will fail if they have not been
-    #   # installed, so we have to ignore that error
-    #   ignore_errors: True
 
-    # - name: "Penpot uninstall and cleanup"
-    #   block:
-    #     - name: "Uninstall penpot"
-    #       apt:
-    #         pkg:
-    #           - prometheus
-    #           - grafana
-    #         state: absent
-    #     - name: "Remove grafana repo key"
-    #       apt_key:
-    #         id: 66A9CD0595D6AFA247290D3BEF8B479E2DC1389C
-    #         state: absent
-    #     - name: "Remove grafana repository"
-    #       apt_repository:
-    #         repo: deb https://packages.grafana.com/oss/deb stable main
-    #         state: absent
-    #     - name: "Drop database for Grafana"
-    #       postgresql_db:
-    #         name: grafana
-    #         state: absent
-    #       become: yes
-    #       become_user: postgres
-    #   when: not penpot_installed
+    - name: "Penpot uninstall and cleanup"
+      when: not penpot_installed
+      block:
+        - name: "Uninstall penpot"
+          apt:
+            state: absent
+            pkg:
+              - adoptopenjdk-16-hotspot
+              - redis-server
+              - imagemagick
+              - webp
+              - netpbm
+              - potrace
+
+        - name: "Install penpot exporter dependencies"
+          apt:
+            state: abscent
+            pkg:
+              - gconf-service
+              - libasound2
+              - libatk1.0-0
+              - libatk-bridge2.0-0
+              - libcairo2
+              - libcups2
+              - libdbus-1-3
+              - libexpat1
+              - libfontconfig1
+              - libgcc1
+              - libgconf-2-4
+              - libgdk-pixbuf2.0-0
+              - libglib2.0-0
+              - libgtk-3-0
+              - libnspr4
+              - libpango-1.0-0
+              - libpangocairo-1.0-0
+              - libx11-6
+              - libx11-xcb1
+              - libxcb1
+              - libxcomposite1
+              - libxcursor1
+              - libxdamage1
+              - libxext6
+              - libxfixes3
+              - libxi6
+              - libxrandr2
+              - libxrender1
+              - libxshmfence1
+              - libxss1
+              - libxtst6
+              - fonts-liberation
+              - libappindicator1
+              - libnss3
+              - libgbm1
+
+        - name: "Drop database for Grafana"
+          become: yes
+          become_user: postgres
+          postgresql_db:
+            name: penpot
+            state: absent
+
+        - name: "Delete Penpot"
+          file:
+            state: absent
+            path: /opt/penpot
+
+        - name: "Delete nodejs"
+          file:
+            state: absent
+            path: /usr/local/nodejs
