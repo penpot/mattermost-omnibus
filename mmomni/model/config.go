@@ -219,10 +219,6 @@ func (c *Config) IsValid() error {
 		return fmt.Errorf("penpot_enabled cannot be true if penpot_installed is false")
 	}
 
-	if *c.PenpotEnabled && (*c.GrafanaUser == "" || *c.GrafanaPassword == "") {
-		return fmt.Errorf("grafana_user and grafana_password must be set if penpot_enabled is set to true")
-	}
-
 	if *c.JitsiEnabled && !*c.JitsiInstalled {
 		return fmt.Errorf("jitsi_enabled cannot be true if jitsi_installed is false")
 	}
