@@ -1,16 +1,15 @@
 - name: "Penpot"
-
   block:
     - name: "PostgreSQL"
       become: yes
       become_user: postgres
       block:
-        - name: "Create database for Penpot"
+        - name: "create database for Penpot"
           postgresql_db:
             name: "penpot"
             owner: "{{db_user}}"
 
-    - name: "Install OPENJDK"
+    - name: "install OPENJDK"
       when: penpot_installed
       block:
         - name: add adoptopenjdk key
@@ -31,7 +30,7 @@
             update_cache: yes
             install_recommends: yes
 
-    - name: "Install REDIS"
+    - name: "install REDIS"
       when: penpot_installed
       block:
         - name: install redis server
@@ -42,7 +41,7 @@
             update_cache: yes
             install_recommends: yes
 
-        - name: configure redis.conf
+        - name: "configure redis"
           register: "redis_config"
           copy:
             dest: /etc/redis/redis.conf
@@ -65,19 +64,19 @@
               maxclients 50000
               appendonly no
 
-        - name: restart redis
+        - name: "restart redis"
           systemd:
             name: "redis"
             enabled: yes
             state: restarted
 
-    - name: "Install NodeJS"
+    - name: "install NodeJS"
       when: penpot_installed
       vars:
         node_version: "v14.16.1"
 
       block:
-        - name: setup nodejs
+        - name: "setup nodejs"
           shell:
             cmd: >-
               set -e;
@@ -89,17 +88,17 @@
               rm -rf /tmp/node.tar.xz;
             creates: /usr/local/nodejs
 
-        - name: install yarn
+        - name: "install yarn"
           npm:
             global: true
             name: yarn
           environment:
             PATH: "/usr/local/nodejs/bin:/bin:/usr/bin"
 
-    - name: "Penpot installation"
+    - name: "install penpot"
       when: penpot_installed
       block:
-        - name: "Install Penpot dependencies"
+        - name: "install penpot dependencies"
           apt:
             state: present
             pkg:
@@ -109,7 +108,7 @@
               - netpbm
               - potrace
 
-        - name: "Install penpot exporter dependencies"
+        - name: "install penpot exporter dependencies"
           apt:
             state: present
             pkg:
@@ -149,7 +148,7 @@
               - libnss3
               - libgbm1
 
-        - name: "Ensure penpot directory"
+        - name: "ensure penpot directory"
           file:
             path: /opt/penpot/
             state: directory
@@ -157,7 +156,7 @@
             group: root
             mode: u=rwx,g=rx,o=rx
 
-        - name: download penpot app bundle
+        - name: "download penpot app bundle"
           shell:
             cmd: >-
               set -e;
@@ -167,7 +166,7 @@
               tar -xf /tmp/bundle-app.tar.xz --strip-components=1;
               rm -rf /tmp/bundle-app.tar.xz;
 
-        - name: download penpot exporter bundle
+        - name: "download penpot exporter bundle"
           shell:
             cmd: >-
               set -e;
@@ -177,7 +176,14 @@
               tar -xf /tmp/bundle-exporter.tar.xz --strip-components=1;
               rm -rf /tmp/bundle-exporter.tar.xz;
 
-        - name: update backend environemnt file
+        - name: "install exporter runtime deps"
+          yarn:
+            path: /opt/penpot/exporter/
+            production: yes
+          environment:
+            PATH: "/usr/local/nodejs/bin:/bin:/usr/bin"
+
+        - name: "update backend environemnt file"
           vars:
             jvm_opts: >-
               -XX:+UseZGC
@@ -185,7 +191,6 @@
               -XX:ConcGCThreads=1
               -Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager
               -Dclojure.tools.logging.factory=clojure.tools.logging.impl/log4j2-factory
-
           copy:
             dest: "/opt/penpot/app/backend/environ"
             mode: "0644"
@@ -217,7 +222,7 @@
               export PENPOT_RLIMITS_PASSWORD=10
               export PENPOT_RLIMITS_IMAGE=2
 
-        - name: update systemd unit
+        - name: "add/update penpot backend systemd unit"
           copy:
             content: |
               [Unit]
@@ -243,35 +248,80 @@
             group: root
             mode: "0644"
 
-        - name: reload daemon
+        - name: "add/update penpot exporter systemd unit"
+          copy:
+            content: |
+              [Unit]
+              Description=Penpot Exporter
+
+              [Service]
+              WorkingDirectory=/var/www/app/exporter
+              ExecStart=/usr/local/nodejs/bin/node app.js
+              # HTTPS: ?
+              Environment="PENPOT_PUBLIC_URI=https://{{fqdn}}"
+              User=root
+              Group=root
+              KillMode=mixed
+              KillSignal=SIGINT
+              TimeoutStopSec=2s
+              Type=simple
+              Restart=on-failure
+              RestartSec=10
+
+              [Install]
+              WantedBy=multi-user.target
+
+            dest: /etc/systemd/system/penpot-exporter.service
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: "reload daemon"
           systemd:
             daemon_reload: yes
 
-        - name: setup/restart systemd unit
+        - name: "setup/restart systemd unit for penpot backend"
           systemd:
             name: "penpot-backend"
             enabled: yes
             state: restarted
 
-    - name: "Disable penpot"
+        - name: "setup/restart systemd unit for penpot exporter"
+          systemd:
+            name: "penpot-exporter"
+            enabled: yes
+            state: restarted
+
+    - name: "disable penpot"
       when: not penpot_enabled
       # The services need to be stopped before performing the
       # uninstall, but the task will fail if they have not been
       # installed, so we have to ignore that error
       ignore_errors: True
       block:
-        - name: "Disable penpot"
+        - name: "disable penpot backend"
           systemd:
             name: penpot-backend
             state: stopped
             enabled: false
             daemon_reload: yes
 
+        - name: "disable penpot exporter"
+          systemd:
+            name: penpot-backend
+            state: stopped
+            enabled: false
+            daemon_reload: yes
 
-    - name: "Penpot uninstall and cleanup"
+    - name: "uninstall/cleanun penpot"
       when: not penpot_installed
       block:
-        - name: "Uninstall penpot"
+        - name: "delete nodejs"
+          file:
+            state: absent
+            path: /usr/local/nodejs
+
+        - name: "uninstall penpot dependencies"
           apt:
             state: absent
             pkg:
@@ -282,7 +332,7 @@
               - netpbm
               - potrace
 
-        - name: "Install penpot exporter dependencies"
+        - name: "uninstall penpot exporter dependencies"
           apt:
             state: abscent
             pkg:
@@ -322,19 +372,15 @@
               - libnss3
               - libgbm1
 
-        - name: "Drop database for Grafana"
+        - name: "drop penpot database"
           become: yes
           become_user: postgres
           postgresql_db:
             name: penpot
             state: absent
 
-        - name: "Delete Penpot"
+        - name: "delete penpot directory"
           file:
             state: absent
             path: /opt/penpot
 
-        - name: "Delete nodejs"
-          file:
-            state: absent
-            path: /usr/local/nodejs
